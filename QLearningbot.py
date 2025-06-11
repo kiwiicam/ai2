@@ -19,8 +19,8 @@ def board_to_state(board):
     return state
 
 epsilon = 1
-epsilon_min = 0.1
-epsilon_decay = 0.99997
+epsilon_min = 0.01
+epsilon_decay = 0.99999
 
 action_to_index_map = {
     "0,0": 0, "0,1": 1, "0,2": 2,
@@ -62,19 +62,12 @@ def apply_action(board, move, player):
 
 
 def calculate_reward(board, player):
-    if board.checkWin(player): 
-        #print(f"Player {player} wins!")
-        return 10
-    if board.checkWin(3-player): 
-        #print(f"Player {3-player} wins!")
-        return -10
-    if board.checkDraw(): 
-       #print("Draw!")
-        return 0.5
-    # Position-based rewards
-    if check_two_in_a_row(board.board, player): return 0.3
-    if check_two_in_a_row(board.board, 3-player): return -0.3
-    return 0.1  # Small reward for continuing the game
+    if board.checkWin(player): return 10
+    if board.checkWin(3-player): return -10
+    if board.checkDraw(): return 3 
+    center_bonus = 0.5 if board.board[1][1] == player else -0.3
+    two_in_row = 1.5 if check_two_in_a_row(board.board, player) else 0
+    return 0.1 + center_bonus + two_in_row
 
 
 learning_rate = 0.25
@@ -93,12 +86,15 @@ def calculateQscore(q_table, state, action, reward, next_state, terminal):
 def train(num_episodes, existing):
     global epsilon
     if existing and os.path.exists('q_table.npy'):
-            q_table = np.load('q_table.npy')
+        q_table = np.load('q_table.npy')
     else:
-            q_table = createQtable().q_table
+        q_table = createQtable().q_table
 
     for episode in range(num_episodes):
         board = Board()
+        prev_state = None
+        prev_action = None
+        
         while True:
             # Q-bot's move (Player 1)
             state = board_to_state(board.board)
@@ -111,19 +107,31 @@ def train(num_episodes, existing):
             reward = calculate_reward(board, 1)
             terminal = board.checkWin(1) or board.checkDraw()
             next_state = None if terminal else board_to_state(board.board)
+            
+            # Store previous state/action before opponent moves
+            prev_state = state
+            prev_action = action
+            
             calculateQscore(q_table, state, action, reward, next_state, terminal)
             if terminal: break
 
             # Minimax's move (Player 2)
-            best_move = get_best_move(board.board)
+            if random.random() < 0.3:  # 30% chance of weaker opponent
+                best_move = get_best_move(board.board, depth=1)
+            else:
+                best_move = get_best_move(board.board)
             board.makeMove(best_move, 2)
             
-            # Check terminal state after Minimax move
+            # Update Q-table based on opponent's move
             if board.checkWin(2):
-                    calculateQscore(q_table, state, action, -10, None, True)
-                    break
+                reward = -10  # Q-bot loses
+                terminal = True
+                calculateQscore(q_table, prev_state, prev_action, reward, None, terminal)
+                break
             elif board.checkDraw():
-                calculateQscore(q_table, state, action, 0.5, None, True)
+                reward = 0.5
+                terminal = True
+                calculateQscore(q_table, prev_state, prev_action, reward, None, terminal)
                 break
 
         epsilon = max(epsilon_min, epsilon * epsilon_decay)
@@ -135,6 +143,7 @@ def train(num_episodes, existing):
 def verseBot():
     board = Board()
     q_array = np.load('q_table.npy')
+    print(q_array)
     while True:
         board.printBoard()
         playermove = input("Enter your move in the format x,x")
@@ -145,7 +154,7 @@ def verseBot():
     #get numpy var in from text that its been saved too
         board.printBoard()
         state = board_to_state(board.board)
-    #get state for current game state useing board_to_state()
+    #get state for current game state using board_to_state()
         movelist = q_array[state]  # all Q-values for this state (length 9)
         legal_moves = board.allLegalMoves()  # e.g. ["0,0", "1,2", "2,1"]
         legal_indices = [action_to_index_map[move] for move in legal_moves]  # e.g. [0, 5, 7]
@@ -159,10 +168,5 @@ def verseBot():
             print("GAME OVER OR DRAW")
             break      
     #and then use max() to find the move with the highest q value
-#train(100000, False)
+#train(100000, True)
 verseBot()
-#Train for 1M+ episodes.
-
-#Use a smarter opponent (e.g., blocks wins).
-
-#Ensure verseBot() picks the highest Q-value among legal moves.
